@@ -11,6 +11,8 @@
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
+extern int priorityBoostTick;
+extern struct strideproc pstrideproc;
 struct spinlock tickslock;
 uint ticks;
 
@@ -104,8 +106,29 @@ trap(struct trapframe *tf)
   // If interrupts were on while locks held, would need to check nlock.
   if(myproc() && myproc()->state == RUNNING &&
      tf->trapno == T_IRQ0+IRQ_TIMER)
-    yield();
-
+     {
+       if (myproc()->mode == MLFQ)
+       {
+         if (myproc()->quantumtick >= myproc()->priorityqueue->timequantum)
+        {
+          myproc()->quantumtick = 0;
+          yield();
+        } 
+        else 
+        {
+          pstrideproc.passval = pstrideproc.passval + pstrideproc.stride;
+          ++priorityBoostTick;
+          ++myproc()->quantumtick;
+          ++myproc()->timesum;
+        }
+       }
+       else
+       {
+        //  cprintf("STRIDE YIELD");
+         yield();
+       }
+     }
+    
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();

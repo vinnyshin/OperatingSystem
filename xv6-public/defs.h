@@ -9,6 +9,8 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct queueMLFQ;
+struct strideproc;
 
 // bio.c
 void            binit(void);
@@ -120,6 +122,8 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+void            queueinit(void);
+int             getlev(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -186,8 +190,17 @@ void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
 
-//prac_syscall.c
-int				getppid(void);
-
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+
+// mlfq.c
+int             isempty(struct queueMLFQ* queue);
+void            enqueue(struct queueMLFQ* queue, struct proc* proc);
+struct proc*    dequeue(struct queueMLFQ* queue);
+
+//stride_minheap.c
+void            insert(struct strideproc* strideproc);
+void            heapinit(void);
+void popmin(struct strideproc* pstrideproc);
+void heapify(void);

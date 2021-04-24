@@ -23,8 +23,9 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
-int getppid(void);
-void yield(void);
+int yield(void);
+int getlev(void);
+int set_cpu_share(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

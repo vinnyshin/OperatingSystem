@@ -34,6 +34,8 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+enum schedmode { MLFQ, STRIDE };
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -49,6 +51,12 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  
+  // MLFQ variables
+  struct queueMLFQ *priorityqueue; // Where the process is working on	
+  int quantumtick; // How many ticks the process used
+  int timesum; // With respect to time allotment, How many ticks the process used
+  enum schedmode mode;
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -56,3 +64,37 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+
+struct queueMLFQ {
+  struct proc* proc[NPROC];
+	int front;
+	int rear;
+	// each process will get diferrent time allotment
+	// for q0, 5 ticks (highest)
+	// for q1, 10 ticks (middle)
+	// for q2, no ticks counted (lowest)
+	int timeallotment;
+	// each process will get differrent Round Robin policy
+	// for q0, 1 tick (highest)
+	// for q1, 2 ticks(middle)
+	// for q2, 4 ticks(lowest)
+	int timequantum;
+};
+
+// Process for stride scheduling
+struct strideproc
+{
+  struct proc* proc;
+  int ticket;       
+  // total ticket / ticket 
+  double stride;       
+  // how much the process traveled, if a new process created, its passval will be initialized with minimun passval among the processes
+  double passval;
+  //MLFQ ,STRIDE mode 
+  enum schedmode mode;
+};
+
+struct strideheap {
+    struct strideproc proc[NPROC];
+    int count;
+};
