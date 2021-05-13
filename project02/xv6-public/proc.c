@@ -898,8 +898,8 @@ int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
   *nt->tf = *master->tf;
   for(int i = 0; i < NOFILE; i++)
     if(master->ofile[i])
-        nt->ofile[i] = filedup(master->ofile[i]);
-  nt->cwd = idup(master->cwd);
+        nt->ofile[i] = master->ofile[i];
+  nt->cwd = master->cwd;
   safestrcpy(master->name, nt->name, sizeof(master->name));
   
 
@@ -947,6 +947,7 @@ int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
   acquire(&ptable.lock);
 
   nt->state = RUNNABLE;
+  ++master->nthreads;
   enqueue(&q0, nt);
   
   release(&ptable.lock);
@@ -956,25 +957,68 @@ int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
 
 void thread_exit(void *retval) {
   struct proc *curthread = myproc();
-  // struct proc *p;
+  struct proc *p;
   int fd;
   
-  // if(curthread->master == 0) {
-  //   cprintf("thread exit called in master thread!\n");
-  //   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-  //   {
-  //     // 승격시킬 therad 찾기
-  //     if (p->master != curthread)
-  //       continue;
-  //     if (p->state == ZOMBIE)
-  //     {
-  //       continue;
-  //     } else {
+  if(curthread->master == 0) {
+    // cprintf("thread exit called in master thread!\n");
+    
+    acquire(&ptable.lock);
 
-  //     }
-  //   }
-  //   exit();
-  // }
+    for (;;)
+    {
+      // printf(1, "shibal");
+      
+      // Scan through table looking for exited children.
+      for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      {
+        // 해당하는 thread 찾기
+        if (p->master != curthread && p->state != UNUSED)
+          continue;
+        if (p->state == ZOMBIE)
+        {
+          // cprintf("exit: %d\n", p->tid);
+          // Found one.
+          // tid = p->tid;
+          kfree(p->kstack);
+          p->kstack = 0;
+          // freevm(p->pgdir);
+          p->pid = 0;
+          p->parent = 0;
+          p->name[0] = 0;
+          p->killed = 0;
+          p->state = UNUSED;
+          --p->master->nthreads;
+          // p->master = 0;
+          // *retval = p->ret_val;
+          p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
+          deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+          // release(&ptable.lock);
+          // // return 0 on success
+          continue;
+          // return 0;
+        }
+      }
+
+      // No point waiting if we don't have any children.
+      if (curthread->killed)
+      {
+        release(&ptable.lock);
+        goto exit;
+      }
+      // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+      if (curthread->nthreads != 0) {
+        sleep(curthread, &ptable.lock); //DOC: wait-sleep
+      }
+      else {
+        release(&ptable.lock);
+        goto exit;
+      }
+        
+    }
+    exit:
+      exit();
+  }
 
   // cprintf("exit!\n");
   // Close all open files.
@@ -982,14 +1026,14 @@ void thread_exit(void *retval) {
   {
     if (curthread->ofile[fd])
     {
-      fileclose(curthread->ofile[fd]);
+      // fileclose(curthread->ofile[fd]);
       curthread->ofile[fd] = 0;
     }
   }
 
-  begin_op();
-  iput(curthread->cwd);
-  end_op();
+  // begin_op();
+  // iput(curthread->cwd);
+  // end_op();
   curthread->cwd = 0;
 
   acquire(&ptable.lock);
@@ -1045,11 +1089,12 @@ int thread_join(thread_t thread, void **retval) {
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
-
+        --p->master->nthreads;
         // p->master = 0;
         *retval = p->ret_val;
         p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
         deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+        
         release(&ptable.lock);
         // return 0 on success
         

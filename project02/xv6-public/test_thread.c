@@ -146,7 +146,7 @@ basicthreadmain(void *arg)
 {
   int tid = (int) arg;
   int i;
-  printf(1, "%d", tid);
+  // printf(1, "%d", tid);
   // 100000000
   for (i = 0; i < 100000000; i++) {
       // global++;
@@ -168,7 +168,7 @@ basicthreadmain(void *arg)
 //   void *retval;
 //   int i;
 //   // printf(1, "exit");
-//   thread_exit((void *)(1));
+  
 //   // printf(1, "exit");
 //   // thread_create(&threads[0], basicthreadmain, (void*)0);
 //   // thread_create(&threads[1], basicthreadmain, (void*)1);
@@ -188,6 +188,7 @@ basicthreadmain(void *arg)
 //     }
 //     // printf(1, "global %d", global); 
 //   }
+//   thread_exit((void *)(1));
 //   for (i = 0; i < NUM_THREAD; i++){
 //     if (thread_join(threads[i], &retval) != 0 || (int)retval != i+1){
 //       printf(1, "panic at thread_join\n");
