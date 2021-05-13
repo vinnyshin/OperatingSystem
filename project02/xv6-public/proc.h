@@ -57,6 +57,14 @@ struct proc {
   int quantumtick; // How many ticks the process used
   int timesum; // With respect to time allotment, How many ticks the process used
   enum schedmode mode;
+
+  // Thread variables
+  int tid; // if tid == 0, it means master thread
+  struct proc *master; // memory address of master thread
+  void *ret_val; // return value, used in thread_exit, thread_join
+  uint freepage[NPROC]; // freed page array for preventing external fragmentation
+  int freepagesize; // freepage array is a stack data structure. it needs size for pop and push operation.
+  // esp is uint check trapframe in x86.h
 };
 
 // Process memory is laid out contiguously, low addresses first:
