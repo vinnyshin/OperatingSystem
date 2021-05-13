@@ -16,6 +16,8 @@ struct
 static struct proc *initproc;
 
 int nextpid = 1;
+int nexttid = 1;
+
 extern void forkret(void);
 extern void trapret(void);
 
@@ -34,6 +36,8 @@ struct strideproc mlfqstrideproc;
 
 void queueinit(void)
 {
+  // q0.timeallotment = 50;
+  // q0.timequantum = 10;
   q0.timeallotment = 5;
   q0.timequantum = 1;
   q1.timeallotment = 10;
@@ -118,8 +122,11 @@ found:
   p->timesum = 0;
   p->quantumtick = 0;
   p->priorityqueue = &q0;
-
+  
   release(&ptable.lock);
+  
+  // for threading
+  p->master = 0;
 
   // Allocate kernel stack.
   if ((p->kstack = kalloc()) == 0)
@@ -267,7 +274,7 @@ void exit(void)
   struct proc *curproc = myproc();
   struct proc *p;
   int fd;
-
+  
   if (curproc == initproc)
     panic("init exiting");
 
@@ -280,15 +287,16 @@ void exit(void)
       curproc->ofile[fd] = 0;
     }
   }
-
+  
   begin_op();
   iput(curproc->cwd);
   end_op();
   curproc->cwd = 0;
-
+  
   acquire(&ptable.lock);
 
   // Parent might be sleeping in wait().
+  
   wakeup1(curproc->parent);
 
   // Pass abandoned children to init.
@@ -320,6 +328,7 @@ int wait(void)
   acquire(&ptable.lock);
   for (;;)
   {
+    
     // Scan through table looking for exited children.
     havekids = 0;
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
@@ -412,6 +421,7 @@ void scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+    // cprintf("LOOP!");
 
     popmin(&pstrideproc);
 
@@ -421,7 +431,7 @@ void scheduler(void)
     // cprintf("%d | ", pstrideproc->passval);
     if (pstrideproc.mode == STRIDE)
     {
-      
+      // cprintf("LOOP!");
       p = pstrideproc.proc;
       // cprintf("pstrideproc->passval: %d\n", pstrideproc->passval);
       // cprintf("pstrideproc->stride: %d\n", pstrideproc->stride);
@@ -455,13 +465,13 @@ void scheduler(void)
     }
     else
     {
-      
       if (priorityBoostTick < 100)
       {
+        
         if (q0.rear != q0.front)
         {
           p = dequeue(&q0);
-
+          
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
@@ -488,6 +498,8 @@ void scheduler(void)
           // cprintf("%d state\n", p->state);
           switchuvm(p);
           p->state = RUNNING;
+          // cprintf("LOOP!");
+          // cprintf("tid: %d\n", p->tid);
 
           swtch(&(c->scheduler), p->context);
           switchkvm();
@@ -498,6 +510,7 @@ void scheduler(void)
         }
         else if (q1.rear != q1.front)
         {
+          
           p = dequeue(&q1);
 
           if (p->state == ZOMBIE || p->state == UNUSED)
@@ -536,6 +549,7 @@ void scheduler(void)
         }
         else if (q2.rear != q2.front)
         {
+          
           p = dequeue(&q2);
 
           if (p->state == ZOMBIE || p->state == UNUSED)
@@ -583,6 +597,8 @@ void scheduler(void)
         priorityBoostTick = 0;
       }
     }
+    
+    // cprintf("%d\n", pstrideproc.ticket); 
     insert(&pstrideproc);
     release(&ptable.lock);
   }
@@ -848,4 +864,253 @@ int sys_set_cpu_share(void)
   release(&ptable.lock);
 
   return 0;
+}
+
+int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
+{  
+  struct proc *nt;
+  struct proc *master;
+  uint sz, sp;
+
+  // thread_create called in master thread
+  if (myproc()->master == 0) {
+    master = myproc();
+  }
+  // thread_create called in slave thread
+  else {
+    master = myproc()->master;
+  }
+
+  // Allocate thread.
+  if ((nt = allocproc()) == 0)
+  {
+    panic("thread_create: allocproc?");
+    return -1;
+  }
+  
+  // restore value. it's not creating process
+  --nextpid;
+
+  // setting thread's default value using master's value
+  nt->master = master;
+  nt->pgdir = master->pgdir;
+  nt->pid = master->pid;
+  *nt->tf = *master->tf;
+  for(int i = 0; i < NOFILE; i++)
+    if(master->ofile[i])
+        nt->ofile[i] = master->ofile[i];
+  nt->cwd = master->cwd;
+  safestrcpy(master->name, nt->name, sizeof(master->name));
+  
+
+  // 익스터널 프래그멘테이션 해결 필요
+  // 해결
+  if (master->freepagesize > 0)
+  {
+    --master->freepagesize;
+    sz = master->freepage[master->freepagesize];
+  }
+  else
+  {
+    sz = master->sz;
+    master->sz = sz + 2*PGSIZE;
+  }
+  // stack allocation
+  // cprintf("master->sz: %d\n", sz);
+  sz = PGROUNDUP(sz);
+  
+  // Allocate two pages at the next page boundary.
+  // Make the first inaccessible.  Use the second as the user stack.
+  
+  if((sz = allocuvm(master->pgdir, sz, sz + 2*PGSIZE)) == 0)
+    panic("thread_create: allocuvm");
+  
+  // setting guard page, making flag PTE_U unavailable
+  clearpteu(master->pgdir, (char*)(sz - 2*PGSIZE));
+  
+  // sz += 2*PGSIZE;
+  // setting thread's arguments
+  sp = sz;
+  nt->sz = sz;
+
+  sp -= 4;
+  *((uint*)sp) = (uint)arg;
+  sp -= 4;
+  *((uint*)sp) = 0xffffffff; // fake return PC
+  
+  nt->tid = nexttid++;
+  *thread = nt->tid;
+  
+  nt->tf->eip = (uint)start_routine;
+  nt->tf->esp = sp;
+  
+  acquire(&ptable.lock);
+
+  nt->state = RUNNABLE;
+  ++master->nthreads;
+  enqueue(&q0, nt);
+  
+  release(&ptable.lock);
+  
+  return 0;
+}
+
+void thread_exit(void *retval) {
+  struct proc *curthread = myproc();
+  struct proc *p;
+  int fd;
+  
+  if(curthread->master == 0) {
+    // cprintf("thread exit called in master thread!\n");
+    
+    acquire(&ptable.lock);
+
+    for (;;)
+    {
+      // printf(1, "shibal");
+      
+      // Scan through table looking for exited children.
+      for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      {
+        // 해당하는 thread 찾기
+        if (p->master != curthread && p->state != UNUSED)
+          continue;
+        if (p->state == ZOMBIE)
+        {
+          // cprintf("exit: %d\n", p->tid);
+          // Found one.
+          // tid = p->tid;
+          kfree(p->kstack);
+          p->kstack = 0;
+          // freevm(p->pgdir);
+          p->pid = 0;
+          p->parent = 0;
+          p->name[0] = 0;
+          p->killed = 0;
+          p->state = UNUSED;
+          --p->master->nthreads;
+          // p->master = 0;
+          // *retval = p->ret_val;
+          p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
+          deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+          // release(&ptable.lock);
+          // // return 0 on success
+          continue;
+          // return 0;
+        }
+      }
+
+      // No point waiting if we don't have any children.
+      if (curthread->killed)
+      {
+        release(&ptable.lock);
+        goto exit;
+      }
+      // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+      if (curthread->nthreads != 0) {
+        sleep(curthread, &ptable.lock); //DOC: wait-sleep
+      }
+      else {
+        release(&ptable.lock);
+        goto exit;
+      }
+        
+    }
+    exit:
+      exit();
+  }
+
+  // cprintf("exit!\n");
+  // Close all open files.
+  for (fd = 0; fd < NOFILE; fd++)
+  {
+    if (curthread->ofile[fd])
+    {
+      // fileclose(curthread->ofile[fd]);
+      curthread->ofile[fd] = 0;
+    }
+  }
+
+  // begin_op();
+  // iput(curthread->cwd);
+  // end_op();
+  curthread->cwd = 0;
+
+  acquire(&ptable.lock);
+
+  // Parent might be sleeping in wait().
+  
+  wakeup1(curthread->master);
+
+  // // // Pass abandoned children to init.
+  // for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  // {
+  //   if (p->parent == curthread)
+  //   {
+  //     p->parent = initproc;
+  //     if (p->state == ZOMBIE)
+  //       wakeup1(initproc);
+  //   }
+  // }
+  
+  // Jump into the scheduler, never to return.
+  curthread->ret_val = retval;
+  curthread->state = ZOMBIE;
+  // cprintf("exit tid: %d\n", curthread->tid);
+  sched();
+  panic("zombie exit");
+}
+
+int thread_join(thread_t thread, void **retval) {
+  struct proc *p;
+  // int tid;
+  struct proc *curproc = myproc();
+  
+  acquire(&ptable.lock);
+  for (;;)
+  {
+    // printf(1, "shibal");
+    
+    // Scan through table looking for exited children.
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      // 해당하는 thread ID 찾기
+      if (p->tid != thread)
+        continue;
+      if (p->state == ZOMBIE)
+      {
+        // Found one.
+        // tid = p->tid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        // freevm(p->pgdir);
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->state = UNUSED;
+        --p->master->nthreads;
+        // p->master = 0;
+        *retval = p->ret_val;
+        p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
+        deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+        
+        release(&ptable.lock);
+        // return 0 on success
+        
+        return 0;
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if (curproc->killed)
+    {
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    // cprintf("SLEEp!!\n");
+    sleep(curproc, &ptable.lock); //DOC: wait-sleep
+  }
 }
