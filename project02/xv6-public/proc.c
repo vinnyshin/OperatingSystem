@@ -38,13 +38,13 @@ void queueinit(void)
 {
   // q0.timeallotment = 50;
   // q0.timequantum = 10;
-  q0.timeallotment = 5;
-  q0.timequantum = 1;
-  q1.timeallotment = 10;
-  q1.timequantum = 2;
+  q0.timeallotment = 20;
+  q0.timequantum = 5;
+  q1.timeallotment = 40;
+  q1.timequantum = 10;
   // q2's timeallotment is not defined
   q2.timeallotment = -1;
-  q2.timequantum = 4;
+  q2.timequantum = 20;
 }
 
 void pinit(void)
@@ -266,6 +266,8 @@ int fork(void)
   return pid;
 }
 
+struct proc *testproc;
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait() to find out it exited.
@@ -278,6 +280,48 @@ void exit(void)
   if (curproc == initproc)
     panic("init exiting");
 
+  acquire(&ptable.lock);
+
+  if(curproc->master == 0) {
+    cprintf("curproc pid : %d\n", curproc->pid);
+    // cprintf("curproc master: %d\n", curproc->master);
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      if (p->master == curproc && p->state != UNUSED) {
+        cprintf("exit: %d\n", p->tid);
+        cprintf("master pid: %d\n", p->master->pid);
+        // Close all open files.
+        // for (fd = 0; fd < NOFILE; fd++)
+        // {
+        //   if (curproc->ofile[fd])
+        //   {
+        //     curproc->ofile[fd] = 0;
+        //   }
+        // }
+        // Found one.
+        // tid = p->tid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        // freevm(p->pgdir);
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->cwd = 0;
+        p->state = UNUSED;
+        --p->master->nthreads;
+        // p->master = 0;
+        // *retval = p->ret_val;
+        // freepage 관련 에러 나중에 터질 것 같은데..
+        // p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
+        deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+      }      
+    }
+  }
+  cprintf("curproc->parent state = %d\n", curproc->parent->state);
+  cprintf("curproc->parent pid = %d\n", curproc->parent->pid);
+
+  release(&ptable.lock);
   // Close all open files.
   for (fd = 0; fd < NOFILE; fd++)
   {
@@ -298,21 +342,36 @@ void exit(void)
   // Parent might be sleeping in wait().
   
   wakeup1(curproc->parent);
-
+  cprintf("testproc pid: %d\n", testproc->pid);
+  cprintf("testproc state: %d\n", testproc->state);
+  
   // Pass abandoned children to init.
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
   {
     if (p->parent == curproc)
     {
       p->parent = initproc;
-      if (p->state == ZOMBIE)
+      if (p->state == ZOMBIE) {
+        cprintf("wakeup...?");
         wakeup1(initproc);
+      }
     }
   }
-
+  // if (testproc->priorityqueue == )
+  // {
+  //   /* code */
+  // }
+  
+  testproc = dequeue(testproc->priorityqueue);
+  cprintf("dequeued1 testproc pid: %d\n", testproc->pid);
+  enqueue(testproc->priorityqueue, testproc);
+  testproc = dequeue(testproc->priorityqueue);
+  cprintf("dequeued2 testproc pid: %d\n", testproc->pid);
+  enqueue(testproc->priorityqueue, testproc);
+  
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
-  // cprintf("exit pid: %d\n", curproc->pid);
+  cprintf("exit pid: %d\n", curproc->pid);
   sched();
   panic("zombie exit");
 }
@@ -328,16 +387,19 @@ int wait(void)
   acquire(&ptable.lock);
   for (;;)
   {
-    
+    cprintf("catch!");
     // Scan through table looking for exited children.
     havekids = 0;
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
       if (p->parent != curproc)
         continue;
+      // cprintf("catch!");
       havekids = 1;
       if (p->state == ZOMBIE)
       {
+        cprintf("p->pid: %d\n,", p->pid);
+        cprintf("ZOMBIE!");
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
@@ -349,6 +411,7 @@ int wait(void)
         p->killed = 0;
         p->state = UNUSED;
         release(&ptable.lock);
+        cprintf("return!");
         return pid;
       }
     }
@@ -465,20 +528,24 @@ void scheduler(void)
     }
     else
     {
-      if (priorityBoostTick < 100)
+      // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+      if (priorityBoostTick < 200)
       {
-        
+        // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+        // ++priorityBoostTick;
         if (q0.rear != q0.front)
         {
+          // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+      
           p = dequeue(&q0);
-          
+           
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
             release(&ptable.lock);
             continue;
           }
-
+      
           ++priorityBoostTick;
           ++p->quantumtick;
           ++p->timesum;
@@ -512,7 +579,7 @@ void scheduler(void)
         {
           
           p = dequeue(&q1);
-
+          // ++priorityBoostTick;
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
@@ -551,7 +618,7 @@ void scheduler(void)
         {
           
           p = dequeue(&q2);
-
+          // ++priorityBoostTick;
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
@@ -577,6 +644,8 @@ void scheduler(void)
       }
       else
       {
+        // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+      
         while (isempty(&q2) == 0)
         {
           p = dequeue(&q2);
@@ -717,7 +786,11 @@ wakeup1(void *chan)
       p->state = RUNNABLE;
       if(p->mode == MLFQ)
       {
+        // release(&ptable.lock);
+        testproc = p;
         enqueue(p->priorityqueue, p);
+        // cprintf("enqueued proc pid: %d\n", p->pid);
+        // acquire(&ptable.lock);
       }
     }
 }
