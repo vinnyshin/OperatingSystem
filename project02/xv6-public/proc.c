@@ -229,6 +229,8 @@ int fork(void)
     return -1;
   }
 
+  
+
   // Copy process state from proc.
   if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
   {
@@ -282,27 +284,58 @@ void exit(void)
 
   acquire(&ptable.lock);
 
-  if(curproc->master == 0) {
-    cprintf("curproc pid : %d\n", curproc->pid);
-    // cprintf("curproc master: %d\n", curproc->master);
+  // if(curproc->master == 0) {
+  //   cprintf("curproc pid : %d\n", curproc->pid);
+  //   // cprintf("curproc master: %d\n", curproc->master);
+  //   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  //   {
+  //     if (p->master == curproc && p->state != UNUSED) {
+  //       cprintf("exit: %d\n", p->tid);
+  //       cprintf("master pid: %d\n", p->master->pid);
+  //       // Close all open files.
+  //       // for (fd = 0; fd < NOFILE; fd++)
+  //       // {
+  //       //   if (curproc->ofile[fd])
+  //       //   {
+  //       //     curproc->ofile[fd] = 0;
+  //       //   }
+  //       // }
+  //       // Found one.
+  //       // tid = p->tid;
+  //       kfree(p->kstack);
+  //       p->kstack = 0;
+  //       // freevm(p->pgdir);
+  //       p->pid = 0;
+  //       p->parent = 0;
+  //       p->name[0] = 0;
+  //       p->killed = 0;
+  //       p->cwd = 0;
+  //       p->state = UNUSED;
+  //       --p->master->nthreads;
+  //       // p->master = 0;
+  //       // *retval = p->ret_val;
+  //       // freepage 관련 에러 나중에 터질 것 같은데..
+  //       // p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
+  //       deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+  //     }      
+  //   }
+  // } 
+  // thread called exit
+  // else {
+    if (curproc->master != 0)
+    {
+      curproc->parent = curproc->master->parent;  
+    }
+    
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
-      if (p->master == curproc && p->state != UNUSED) {
-        cprintf("exit: %d\n", p->tid);
-        cprintf("master pid: %d\n", p->master->pid);
-        // Close all open files.
-        // for (fd = 0; fd < NOFILE; fd++)
-        // {
-        //   if (curproc->ofile[fd])
-        //   {
-        //     curproc->ofile[fd] = 0;
-        //   }
-        // }
-        // Found one.
-        // tid = p->tid;
+      if (p->pid == curproc->pid && p->state != UNUSED) {
+        // 본인은 뺀다.
+        if(p == curproc) continue;
+        // cprintf("exit tid:%d, pid:%d\n", p->tid, p->pid);
+        // cprintf("master pid: %d\n", p->master->pid);
         kfree(p->kstack);
         p->kstack = 0;
-        // freevm(p->pgdir);
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -311,15 +344,15 @@ void exit(void)
         p->state = UNUSED;
         --p->master->nthreads;
         // p->master = 0;
-        // *retval = p->ret_val;
         // freepage 관련 에러 나중에 터질 것 같은데..
         // p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
+        cprintf("p->master->sz: %d\n", p->master->sz);
         deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
       }      
     }
-  }
-  cprintf("curproc->parent state = %d\n", curproc->parent->state);
-  cprintf("curproc->parent pid = %d\n", curproc->parent->pid);
+  // }
+  // cprintf("curproc->parent state = %d\n", curproc->parent->state);
+  // cprintf("curproc->parent pid = %d\n", curproc->parent->pid);
 
   release(&ptable.lock);
   // Close all open files.
@@ -342,8 +375,8 @@ void exit(void)
   // Parent might be sleeping in wait().
   
   wakeup1(curproc->parent);
-  cprintf("testproc pid: %d\n", testproc->pid);
-  cprintf("testproc state: %d\n", testproc->state);
+  // cprintf("testproc pid: %d\n", testproc->pid);
+  // cprintf("testproc state: %d\n", testproc->state);
   
   // Pass abandoned children to init.
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
@@ -352,7 +385,7 @@ void exit(void)
     {
       p->parent = initproc;
       if (p->state == ZOMBIE) {
-        cprintf("wakeup...?");
+        // cprintf("wakeup...?");
         wakeup1(initproc);
       }
     }
@@ -362,16 +395,16 @@ void exit(void)
   //   /* code */
   // }
   
-  testproc = dequeue(testproc->priorityqueue);
-  cprintf("dequeued1 testproc pid: %d\n", testproc->pid);
-  enqueue(testproc->priorityqueue, testproc);
-  testproc = dequeue(testproc->priorityqueue);
-  cprintf("dequeued2 testproc pid: %d\n", testproc->pid);
-  enqueue(testproc->priorityqueue, testproc);
+  // testproc = dequeue(testproc->priorityqueue);
+  // cprintf("dequeued1 testproc pid: %d\n", testproc->pid);
+  // enqueue(testproc->priorityqueue, testproc);
+  // testproc = dequeue(testproc->priorityqueue);
+  // cprintf("dequeued2 testproc pid: %d\n", testproc->pid);
+  // enqueue(testproc->priorityqueue, testproc);
   
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
-  cprintf("exit pid: %d\n", curproc->pid);
+  // cprintf("exit pid: %d\n", curproc->pid);
   sched();
   panic("zombie exit");
 }
@@ -387,7 +420,7 @@ int wait(void)
   acquire(&ptable.lock);
   for (;;)
   {
-    cprintf("catch!");
+    // cprintf("catch!");
     // Scan through table looking for exited children.
     havekids = 0;
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
@@ -398,20 +431,22 @@ int wait(void)
       havekids = 1;
       if (p->state == ZOMBIE)
       {
-        cprintf("p->pid: %d\n,", p->pid);
-        cprintf("ZOMBIE!");
+        // cprintf("p->pid: %d\n,", p->pid);
+        // cprintf("ZOMBIE!");
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
         freevm(p->pgdir);
+        // cprintf("p->sz: %d\n", p->sz);
+        p->freepagesize = 0;
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
         release(&ptable.lock);
-        cprintf("return!");
+        // cprintf("return!");
         return pid;
       }
     }
