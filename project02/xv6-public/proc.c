@@ -229,9 +229,98 @@ int fork(void)
     return -1;
   }
 
+  acquire(&ptable.lock);
   
+  // master thread called fork
+  // if (curproc->master == 0)
+  // {
+    // np->freepagesize = curproc->freepagesize;
+    // for (int i = 0; i < curproc->freepagesize; i++)
+    // {
+    // np->freepage[i] = curproc->freepage[i];
+    // // cprintf("freepage copy");
+    // }
+    // Copy process state from proc.
+    // if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+    // {
+    //   kfree(np->kstack);
+    //   np->kstack = 0;
+    //   np->state = UNUSED;
+    //   return -1;
+    // }
+    // struct proc *p;
+  
+    // for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    // {
+    //   if (p->pid == curproc->pid && p->state != UNUSED) {
+    //     // 본인은 뺀다.
+    //     if(p == curproc) continue;
+    //     // cprintf("p->tid: %d\n", p->tid);
+    //     if (p->sz < curproc->sz)
+    //     {
+    //       np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
+    //       deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
+    //       // cprintf("np->pid %d", np->pid);  
+    //     }
+    //   }      
+    // }
+    // cprintf("master!");
+  // }
+  // slave thread called fork
+  // else
+  // {
+    // np->freepagesize = curproc->master->freepagesize;
+    // for (int i = 0; i < curproc->master->freepagesize; i++)
+    // {
+    // np->freepage[i] = curproc->master->freepage[i];
+    // // cprintf("freepage copy");
+    // }
+    // Copy process state from proc.
+    // if ((np->pgdir = copyuvm(curproc->pgdir, curproc->master->sz)) == 0)
+    // {
+    //   kfree(np->kstack);
+    //   np->kstack = 0;
+    //   np->state = UNUSED;
+    //   return -1;
+    // }
+    
+    // cprintf("slave!");
+  // }
+  
+  // // Copy process state from proc.
+  // if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+  // {
+  //   kfree(np->kstack);
+  //   np->kstack = 0;
+  //   np->state = UNUSED;
+  //   return -1;
+  // }
 
-  // Copy process state from proc.
+  // struct proc *p;
+  
+  // for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  // {
+  //   if (p->pid == curproc->pid && p->state != UNUSED) {
+  //     // 본인은 뺀다.
+  //     if(p == curproc) {
+  //       // cprintf("curproc sz!: %d\n", curproc->sz);
+  //       continue;
+  //       }
+  //     // cprintf("p->tid: %d\n", p->tid);
+  //     // cprintf("master->sz: %d\n", curproc->master->sz);
+  //     // cprintf("p->sz: %d\n", p->sz);
+  //     if (p->sz < curproc->sz)
+  //     {
+  //       // cprintf("freed p->tid: %d\n", p->tid);
+  //       np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
+  //       deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
+  //       // cprintf("np->pid %d", np->pid);
+  //     }
+  //   }      
+  // }
+  
+  release(&ptable.lock);
+
   if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
   {
     kfree(np->kstack);
@@ -239,6 +328,7 @@ int fork(void)
     np->state = UNUSED;
     return -1;
   }
+  
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
@@ -343,11 +433,9 @@ void exit(void)
         p->cwd = 0;
         p->state = UNUSED;
         --p->master->nthreads;
-        // p->master = 0;
-        // freepage 관련 에러 나중에 터질 것 같은데..
         // p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
-        cprintf("p->master->sz: %d\n", p->master->sz);
-        deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+        // cprintf("p->master->sz: %d\n", p->master->sz);
+        // deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
       }      
     }
   // }
