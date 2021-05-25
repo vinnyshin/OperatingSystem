@@ -3,8 +3,7 @@
 #include "user.h"
 
 #define NUM_THREAD 10
-#define NTEST 7
-
+#define NTEST 14
 
 // Show race condition
 int racingtest(void);
@@ -53,13 +52,15 @@ int (*testfunc[NTEST])(void) = {
   stresstest,
   exittest1,
   exittest2,
-  // forktest,
-  // exectest,
-  // sbrktest,
-  // killtest,
-  // pipetest,
-  // sleeptest,
-  // stridetest,
+  forktest,
+  pipetest,
+  sleeptest,
+
+  exectest,
+  sbrktest,
+  killtest,
+  
+  stridetest,
 };
 char *testname[NTEST] = {
   "racingtest",
@@ -69,13 +70,15 @@ char *testname[NTEST] = {
   "stresstest",
   "exittest1",
   "exittest2",
-  // "forktest",
-  // "exectest",
-  // "sbrktest",
-  // "killtest",
-  // "pipetest",
-  // "sleeptest",
-  // "stridetest",
+  "forktest",
+  "pipetest",
+  "sleeptest",
+
+  "exectest",
+  "sbrktest",
+  "killtest",
+
+  "stridetest",
 };
 
 int
@@ -704,41 +707,95 @@ stridetest(void)
 
 // ============================================================================
 
-
 // #include "types.h"
 // #include "stat.h"
 // #include "user.h"
 
-// #define NUM_THREAD 30
+// #define NUM_THREAD 29
+// volatile int gcnt;
 
 // void test();
 // void test2(void);
 // void* exitthreadmain(void *arg);
+// void* forkthreadmain(void *arg);
+// int forktest(void);
+// int pipetest(void);
+// void* pipethreadmain(void *arg);
 
 // int
 // main(int argc, char *argv[])
 // { 
-//   int pid = fork();
-//   if (pid == 0)
-//   {
-//     test();
-//     exit();
-//   } else {
-//     wait();
-//   }
+//   int pid; 
   
-//   pid = fork();
-//   if (pid == 0)
+//   for (int i = 0; i < 3000; i++)
 //   {
-//     test2();
-//     exit();
-//   } else {
-//     wait();
-//   }
+//     printf(1, "%d\n", i);
+//     pid = fork();
+//     if (pid == 0)
+//     {
+//       pipetest();
+//       exit();
+//     } else {
+//       wait();
+//     }
   
-//   // test();
+//   // pid = fork();
+//   // if (pid == 0)
+//   // {
+//   //   test2();
+//   //   exit();
+//   // } else {
+//   //   wait();
+//   // }
+//   }
 //   exit();
 // }
+
+// void*
+// forkthreadmain(void *arg)
+// {
+//   int pid;
+//   if ((pid = fork()) == -1){
+//     printf(1, "panic at fork in forktest\n");
+//     exit();
+//   } else if (pid == 0){
+//     // printf(1, "child\n");
+//     exit();
+//   } else{
+//     // printf(1, "parent\n");
+//     if (wait() == -1){
+//       printf(1, "panic at wait in forktest\n");
+//       exit();
+//     }
+//   }
+//   thread_exit(0);
+
+//   return 0;
+// }
+
+// int
+// forktest(void)
+// {
+//   thread_t threads[NUM_THREAD];
+//   int i;
+//   void *retval;
+
+//   for (i = 0; i < NUM_THREAD; i++){
+//     if (thread_create(&threads[i], forkthreadmain, (void*)0) != 0){
+//       printf(1, "panic at thread_create\n");
+//       return -1;
+//     }
+//   }
+//   for (i = 0; i < NUM_THREAD; i++){
+//     if (thread_join(threads[i], &retval) != 0){
+//       printf(1, "panic at thread_join\n");
+//       return -1;
+//     }
+//   }
+//   return 0;
+// }
+
+
 
 // void*
 // exitthreadmain(void *arg)
@@ -761,7 +818,7 @@ stridetest(void)
 //   thread_t threads[NUM_THREAD];
 //   int i;
 //   for (i = 0; i < NUM_THREAD; i++){
-//       printf(1, "thread_create %d\n", i);
+//       // printf(1, "thread_create %d\n", i);
 //     if (thread_create(&threads[i], exitthreadmain, (void*)1) != 0){
 //       printf(1, "panic at thread_create\n");
 //     }
@@ -783,6 +840,91 @@ stridetest(void)
 //   while(1);
 // }
 
+// void*
+// pipethreadmain(void *arg)
+// {
+//   int type = ((int*)arg)[0];
+//   int *fd = (int*)arg+1;
+//   int i;
+//   int input;
+//   for (i = -5; i <= 5; i++){
+//     if (type){
+//       read(fd[0], &input, sizeof(int));
+//       __sync_fetch_and_add(&gcnt, input);
+//       //gcnt += input;
+//     } else{
+//       write(fd[1], &i, sizeof(int));
+//     }
+//   }
+//   thread_exit(0);
 
+//   return 0;
+// }
 
+// int
+// pipetest(void)
+// {
+//   thread_t threads[NUM_THREAD];
+//   int arg[3];
+//   int fd[2];
+//   int i;
+//   void *retval;
+//   int pid;
+//   // printf(1, "여기!");
+//   if (pipe(fd) < 0){
+//     printf(1, "panic at pipe in pipetest\n");
+//     return -1;
+//   }
+//   arg[1] = fd[0];
+//   arg[2] = fd[1];
+//   // printf(1, "여기!");
+//   if ((pid = fork()) < 0){
+//       printf(1, "panic at fork in pipetest\n");
+//       return -1;
+//   } else if (pid == 0){
+//     // printf(1, "여기!");
+//     close(fd[0]);
+//     arg[0] = 0;
+//     for (i = 0; i < NUM_THREAD; i++){
+//       // printf(1, "create! %d", i);
+//       if (thread_create(&threads[i], pipethreadmain, (void*)arg) != 0){
+//         printf(1, "panic at thread_create\n");
+//         return -1;
+//       }
+//     }
+//     for (i = 0; i < NUM_THREAD; i++){
+//       // printf(1, "join!");
+//       if (thread_join(threads[i], &retval) != 0){
+//         printf(1, "panic at thread_join\n");
+//         return -1;
+//       }
+//     }
+//     close(fd[1]);
+//     exit();
+//   } else{
+//     close(fd[1]);
+//     arg[0] = 1;
+//     gcnt = 0;
+//     for (i = 0; i < NUM_THREAD; i++){
+//       if (thread_create(&threads[i], pipethreadmain, (void*)arg) != 0){
+//         printf(1, "panic at thread_create\n");
+//         return -1;
+//       }
+//     }
+//     for (i = 0; i < NUM_THREAD; i++){
+//       if (thread_join(threads[i], &retval) != 0){
+//         printf(1, "panic at thread_join\n");
+//         return -1;
+//       }
+//     }
+//     close(fd[0]);
+//   }
+//   if (wait() == -1){
+//     printf(1, "panic at wait in pipetest\n");
+//     return -1;
+//   }
+//   if (gcnt != 0)
+//     printf(1,"panic at validation in pipetest : %d\n", gcnt);
 
+//   return 0;
+// }
