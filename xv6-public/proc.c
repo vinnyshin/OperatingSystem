@@ -38,13 +38,13 @@ void queueinit(void)
 {
   // q0.timeallotment = 50;
   // q0.timequantum = 10;
-  q0.timeallotment = 5;
-  q0.timequantum = 1;
-  q1.timeallotment = 10;
-  q1.timequantum = 2;
+  q0.timeallotment = 20;
+  q0.timequantum = 5;
+  q1.timeallotment = 40;
+  q1.timequantum = 10;
   // q2's timeallotment is not defined
   q2.timeallotment = -1;
-  q2.timequantum = 4;
+  q2.timequantum = 20;
 }
 
 void pinit(void)
@@ -127,6 +127,10 @@ found:
   
   // for threading
   p->master = 0;
+  p->freepagesize = 0;
+  p->tid = 0;
+  p->ret_val = 0;
+  p->nthreads = 0;
 
   // Allocate kernel stack.
   if ((p->kstack = kalloc()) == 0)
@@ -228,15 +232,107 @@ int fork(void)
   {
     return -1;
   }
+  acquire(&ptable.lock);
+  
+  // // master thread called fork
+  if (curproc->master == 0)
+  {
+    np->freepagesize = curproc->freepagesize;
+    for (int i = 0; i < curproc->freepagesize; i++)
+    {
+    np->freepage[i] = curproc->freepage[i];
+    // cprintf("freepage copy");
+    }
+    // Copy process state from proc.
+    if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+    {
+      kfree(np->kstack);
+      np->kstack = 0;
+      np->state = UNUSED;
+      return -1;
+    }
+    struct proc *p;
+  
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      if (p->pid == curproc->pid && p->state != UNUSED) {
+        // 본인은 뺀다.
+        if(p == curproc) continue;
+        // cprintf("p->tid: %d\n", p->tid);
+        if (p->sz < curproc->sz)
+        {
+          np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
+          deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
+          // cprintf("np->pid %d", np->pid);  
+        }
+      }      
+    }
+    // cprintf("master!");
+  }
+  // slave thread called fork
+  else
+  {
+    np->freepagesize = curproc->master->freepagesize;
+    for (int i = 0; i < curproc->master->freepagesize; i++)
+    {
+    np->freepage[i] = curproc->master->freepage[i];
+    // cprintf("freepage copy");
+    }
+    // Copy process state from proc.
+    if ((np->pgdir = copyuvm(curproc->pgdir, curproc->master->sz)) == 0)
+    {
+      kfree(np->kstack);
+      np->kstack = 0;
+      np->state = UNUSED;
+      return -1;
+    }
+    // cprintf("slave!");
+  }
+  
+  // Copy process state from proc.
+  // if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+  // {
+  //   kfree(np->kstack);
+  //   np->kstack = 0;
+  //   np->state = UNUSED;
+  //   return -1;
+  // }
+
+  
+  struct proc *p;
+  
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    if (p->pid == curproc->pid && p->state != UNUSED) {
+      // 본인은 뺀다.
+      if(p == curproc) {
+        // cprintf("curproc sz!: %d\n", curproc->sz);
+        continue;
+        }
+      // cprintf("p->tid: %d\n", p->tid);
+      // cprintf("master->sz: %d\n", curproc->master->sz);
+      // cprintf("p->sz: %d\n", p->sz);
+      if (p->sz < curproc->sz)
+      {
+        // cprintf("freed p->tid: %d\n", p->tid);
+        np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
+        deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
+        // cprintf("np->pid %d", np->pid);
+      }
+    }      
+  }
+
+  release(&ptable.lock);
 
   // Copy process state from proc.
-  if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
-  {
-    kfree(np->kstack);
-    np->kstack = 0;
-    np->state = UNUSED;
-    return -1;
-  }
+  // if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+  // {
+  //   kfree(np->kstack);
+  //   np->kstack = 0;
+  //   np->state = UNUSED;
+  //   return -1;
+  // }
+
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
@@ -266,6 +362,8 @@ int fork(void)
   return pid;
 }
 
+struct proc *testproc;
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait() to find out it exited.
@@ -277,6 +375,44 @@ void exit(void)
   
   if (curproc == initproc)
     panic("init exiting");
+
+  acquire(&ptable.lock);
+
+  // if (curproc->master != 0)
+  // {
+  //   curproc->parent = curproc->master->parent;  
+  // }
+  
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    if (p->pid == curproc->pid && p->state != UNUSED) {
+      // 본인은 뺀다.
+      if(p == curproc) continue;
+
+      kfree(p->kstack);
+      p->kstack = 0;
+      p->pid = 0;
+      p->parent = 0;
+      p->name[0] = 0;
+      p->killed = 0;
+      
+      for (fd = 0; fd < NOFILE; fd++)
+      {
+        if (p->ofile[fd])
+        {
+          p->ofile[fd] = 0;
+        }
+      }
+      p->cwd = 0;
+      
+      p->state = UNUSED;
+      --p->master->nthreads;
+      // p->freepage[p->freepagesize++] = p->sz - 2*PGSIZE;
+      // deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
+    }      
+  }
+  release(&ptable.lock);
+  
 
   // Close all open files.
   for (fd = 0; fd < NOFILE; fd++)
@@ -298,21 +434,22 @@ void exit(void)
   // Parent might be sleeping in wait().
   
   wakeup1(curproc->parent);
-
+  
   // Pass abandoned children to init.
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
   {
     if (p->parent == curproc)
     {
       p->parent = initproc;
-      if (p->state == ZOMBIE)
+      if (p->state == ZOMBIE) {
         wakeup1(initproc);
+      }
     }
   }
-
+  
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
-  // cprintf("exit pid: %d\n", curproc->pid);
+  
   sched();
   panic("zombie exit");
 }
@@ -328,21 +465,26 @@ int wait(void)
   acquire(&ptable.lock);
   for (;;)
   {
-    
+    // cprintf("catch!");
     // Scan through table looking for exited children.
     havekids = 0;
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
       if (p->parent != curproc)
         continue;
+      // cprintf("catch!");
       havekids = 1;
       if (p->state == ZOMBIE)
       {
+        // cprintf("p->pid: %d\n,", p->pid);
+        // cprintf("ZOMBIE!");
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
         freevm(p->pgdir);
+        // cprintf("p->sz: %d\n", p->sz);
+        p->freepagesize = 0;
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -465,20 +607,24 @@ void scheduler(void)
     }
     else
     {
-      if (priorityBoostTick < 100)
+      // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+      if (priorityBoostTick < 200)
       {
-        
+        // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+        // ++priorityBoostTick;
         if (q0.rear != q0.front)
         {
-          p = dequeue(&q0);
           
+      
+          p = dequeue(&q0);
+           
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
             release(&ptable.lock);
             continue;
           }
-
+      
           ++priorityBoostTick;
           ++p->quantumtick;
           ++p->timesum;
@@ -499,7 +645,7 @@ void scheduler(void)
           switchuvm(p);
           p->state = RUNNING;
           // cprintf("LOOP!");
-          // cprintf("tid: %d\n", p->tid);
+          
 
           swtch(&(c->scheduler), p->context);
           switchkvm();
@@ -512,7 +658,7 @@ void scheduler(void)
         {
           
           p = dequeue(&q1);
-
+          // ++priorityBoostTick;
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
@@ -551,7 +697,7 @@ void scheduler(void)
         {
           
           p = dequeue(&q2);
-
+          // ++priorityBoostTick;
           if (p->state == ZOMBIE || p->state == UNUSED)
           {
             insert(&pstrideproc);
@@ -577,6 +723,8 @@ void scheduler(void)
       }
       else
       {
+        // cprintf("priorityboosttick: %d\n", priorityBoostTick);
+      
         while (isempty(&q2) == 0)
         {
           p = dequeue(&q2);
@@ -717,6 +865,7 @@ wakeup1(void *chan)
       p->state = RUNNABLE;
       if(p->mode == MLFQ)
       {
+        testproc = p;
         enqueue(p->priorityqueue, p);
       }
     }
@@ -893,18 +1042,19 @@ int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
 
   // setting thread's default value using master's value
   nt->master = master;
+  nt->parent = master->parent;
   nt->pgdir = master->pgdir;
   nt->pid = master->pid;
   *nt->tf = *master->tf;
+
   for(int i = 0; i < NOFILE; i++)
     if(master->ofile[i])
         nt->ofile[i] = master->ofile[i];
   nt->cwd = master->cwd;
+
   safestrcpy(master->name, nt->name, sizeof(master->name));
   
-
-  // 익스터널 프래그멘테이션 해결 필요
-  // 해결
+  // check whether freepage exists
   if (master->freepagesize > 0)
   {
     --master->freepagesize;
@@ -915,20 +1065,18 @@ int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
     sz = master->sz;
     master->sz = sz + 2*PGSIZE;
   }
-  // stack allocation
-  // cprintf("master->sz: %d\n", sz);
-  sz = PGROUNDUP(sz);
   
+  // sz = PGROUNDUP(sz);
+
+  // stack allocation
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
-  
   if((sz = allocuvm(master->pgdir, sz, sz + 2*PGSIZE)) == 0)
     panic("thread_create: allocuvm");
   
   // setting guard page, making flag PTE_U unavailable
   clearpteu(master->pgdir, (char*)(sz - 2*PGSIZE));
   
-  // sz += 2*PGSIZE;
   // setting thread's arguments
   sp = sz;
   nt->sz = sz;
@@ -943,12 +1091,11 @@ int thread_create(thread_t * thread, void * (*start_routine)(void *), void *arg)
   
   nt->tf->eip = (uint)start_routine;
   nt->tf->esp = sp;
-  
   acquire(&ptable.lock);
 
   nt->state = RUNNABLE;
   ++master->nthreads;
-  enqueue(&q0, nt);
+  enqueue(master->priorityqueue, nt);
   
   release(&ptable.lock);
   
@@ -960,57 +1107,46 @@ void thread_exit(void *retval) {
   struct proc *p;
   int fd;
   
+  // thread_exit called in master thread
   if(curthread->master == 0) {
-    // cprintf("thread exit called in master thread!\n");
-    
     acquire(&ptable.lock);
-
     for (;;)
     {
-      // printf(1, "shibal");
-      
-      // Scan through table looking for exited children.
       for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
       {
-        // 해당하는 thread 찾기
-        if (p->master != curthread && p->state != UNUSED)
+        // find threads that have curthread as master
+        if (p->master != curthread && p->state == UNUSED)
           continue;
+        // its job should be finished.
+        // As you know once job finished, the process state bacame ZOMBIE. 
         if (p->state == ZOMBIE)
         {
-          // cprintf("exit: %d\n", p->tid);
           // Found one.
-          // tid = p->tid;
           kfree(p->kstack);
           p->kstack = 0;
-          // freevm(p->pgdir);
           p->pid = 0;
           p->parent = 0;
           p->name[0] = 0;
           p->killed = 0;
           p->state = UNUSED;
           --p->master->nthreads;
-          // p->master = 0;
-          // *retval = p->ret_val;
           p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
           deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
-          // release(&ptable.lock);
-          // // return 0 on success
           continue;
-          // return 0;
         }
       }
-
       // No point waiting if we don't have any children.
       if (curthread->killed)
       {
         release(&ptable.lock);
         goto exit;
       }
-      // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+      // Wait for children to exit.
       if (curthread->nthreads != 0) {
-        sleep(curthread, &ptable.lock); //DOC: wait-sleep
+        sleep(curthread, &ptable.lock);
       }
-      else {
+      else 
+      {
         release(&ptable.lock);
         goto exit;
       }
@@ -1020,57 +1156,46 @@ void thread_exit(void *retval) {
       exit();
   }
 
-  // cprintf("exit!\n");
   // Close all open files.
   for (fd = 0; fd < NOFILE; fd++)
   {
     if (curthread->ofile[fd])
     {
-      // fileclose(curthread->ofile[fd]);
       curthread->ofile[fd] = 0;
     }
   }
-
-  // begin_op();
-  // iput(curthread->cwd);
-  // end_op();
   curthread->cwd = 0;
 
   acquire(&ptable.lock);
 
-  // Parent might be sleeping in wait().
-  
+  // Parent might be sleeping in wait().  
   wakeup1(curthread->master);
 
-  // // // Pass abandoned children to init.
-  // for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-  // {
-  //   if (p->parent == curthread)
-  //   {
-  //     p->parent = initproc;
-  //     if (p->state == ZOMBIE)
-  //       wakeup1(initproc);
-  //   }
-  // }
+  // // Pass abandoned children to init.
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    if (p->parent == curthread)
+    {
+      p->parent = initproc;
+      if (p->state == ZOMBIE)
+        wakeup1(initproc);
+    }
+  }
   
   // Jump into the scheduler, never to return.
   curthread->ret_val = retval;
   curthread->state = ZOMBIE;
-  // cprintf("exit tid: %d\n", curthread->tid);
   sched();
   panic("zombie exit");
 }
 
 int thread_join(thread_t thread, void **retval) {
   struct proc *p;
-  // int tid;
   struct proc *curproc = myproc();
   
   acquire(&ptable.lock);
   for (;;)
-  {
-    // printf(1, "shibal");
-    
+  {  
     // Scan through table looking for exited children.
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
@@ -1080,24 +1205,20 @@ int thread_join(thread_t thread, void **retval) {
       if (p->state == ZOMBIE)
       {
         // Found one.
-        // tid = p->tid;
         kfree(p->kstack);
         p->kstack = 0;
-        // freevm(p->pgdir);
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
         --p->master->nthreads;
-        // p->master = 0;
         *retval = p->ret_val;
         p->master->freepage[p->master->freepagesize++] = p->sz - 2*PGSIZE;  
         deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
         
         release(&ptable.lock);
-        // return 0 on success
-        
+        // return 0 on success  
         return 0;
       }
     }
@@ -1108,9 +1229,7 @@ int thread_join(thread_t thread, void **retval) {
       release(&ptable.lock);
       return -1;
     }
-
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
-    // cprintf("SLEEp!!\n");
     sleep(curproc, &ptable.lock); //DOC: wait-sleep
   }
 }
