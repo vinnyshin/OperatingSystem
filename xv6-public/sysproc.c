@@ -7,6 +7,8 @@
 #include "mmu.h"
 #include "proc.h"
 
+extern struct spinlock growproclock;
+
 int
 sys_fork(void)
 {
@@ -48,11 +50,22 @@ sys_sbrk(void)
   int addr;
   int n;
 
+  acquire(&growproclock);
+  
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
+  if (myproc()->master == 0) {
+    addr = myproc()->sz;
+  }
+  else {
+    addr = myproc()->master->sz;
+  }
+  
   if(growproc(n) < 0)
     return -1;
+  
+  release(&growproclock);
+  
   return addr;
 }
 
@@ -71,7 +84,11 @@ sys_sleep(void)
       release(&tickslock);
       return -1;
     }
+    
     sleep(&ticks, &tickslock);
+    // procdump();
+    // cprintf("wakeup!%d\n", myproc()->tid);
+    // cprintf("========================================\n");
   }
   release(&tickslock);
   return 0;
