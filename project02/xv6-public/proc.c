@@ -234,7 +234,7 @@ int fork(void)
   }
   acquire(&ptable.lock);
   
-  // // master thread called fork
+  // // // master thread called fork
   if (curproc->master == 0)
   {
     np->freepagesize = curproc->freepagesize;
@@ -244,30 +244,30 @@ int fork(void)
     // cprintf("freepage copy");
     }
     // Copy process state from proc.
-    if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
-    {
-      kfree(np->kstack);
-      np->kstack = 0;
-      np->state = UNUSED;
-      return -1;
-    }
-    struct proc *p;
+  //   if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+  //   {
+  //     kfree(np->kstack);
+  //     np->kstack = 0;
+  //     np->state = UNUSED;
+  //     return -1;
+  //   }
+  //   struct proc *p;
   
-    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    {
-      if (p->pid == curproc->pid && p->state != UNUSED) {
-        // 본인은 뺀다.
-        if(p == curproc) continue;
-        // cprintf("p->tid: %d\n", p->tid);
-        if (p->sz < curproc->sz)
-        {
-          np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
-          deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
-          // cprintf("np->pid %d", np->pid);  
-        }
-      }      
-    }
-    // cprintf("master!");
+  //   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  //   {
+  //     if (p->pid == curproc->pid && p->state != UNUSED) {
+  //       // 본인은 뺀다.
+  //       if(p == curproc) continue;
+  //       // cprintf("p->tid: %d\n", p->tid);
+  //       if (p->sz < curproc->sz)
+  //       {
+  //         np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
+  //         deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
+  //         // cprintf("np->pid %d", np->pid);  
+  //       }
+  //     }      
+  //   }
+  //   // cprintf("master!");
   }
   // slave thread called fork
   else
@@ -278,25 +278,25 @@ int fork(void)
     np->freepage[i] = curproc->master->freepage[i];
     // cprintf("freepage copy");
     }
-    // Copy process state from proc.
-    if ((np->pgdir = copyuvm(curproc->pgdir, curproc->master->sz)) == 0)
-    {
-      kfree(np->kstack);
-      np->kstack = 0;
-      np->state = UNUSED;
-      return -1;
-    }
-    // cprintf("slave!");
+  //   // Copy process state from proc.
+  //   if ((np->pgdir = copyuvm(curproc->pgdir, curproc->master->sz)) == 0)
+  //   {
+  //     kfree(np->kstack);
+  //     np->kstack = 0;
+  //     np->state = UNUSED;
+  //     return -1;
+  //   }
+  //   // cprintf("slave!");
   }
   
   // Copy process state from proc.
-  // if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
-  // {
-  //   kfree(np->kstack);
-  //   np->kstack = 0;
-  //   np->state = UNUSED;
-  //   return -1;
-  // }
+  if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
+  {
+    kfree(np->kstack);
+    np->kstack = 0;
+    np->state = UNUSED;
+    return -1;
+  }
 
   
   struct proc *p;
