@@ -145,32 +145,11 @@ begin_op(void)
 void
 end_op(void)
 {
-  int do_commit = 0;
-
   acquire(&log.lock);
   log.outstanding -= 1;
-  if(log.committing)
-    panic("log.committing");
-  if(log.outstanding == 0){
-    do_commit = 1;
-    log.committing = 1;
-  } else {
-    // begin_op() may be waiting for log space,
-    // and decrementing log.outstanding has decreased
-    // the amount of reserved space.
+  if (log.outstanding > 0)
     wakeup(&log);
-  }
   release(&log.lock);
-
-  if(do_commit){
-    // call commit w/o holding locks, since not allowed
-    // to sleep with locks.
-    commit();
-    acquire(&log.lock);
-    log.committing = 0;
-    wakeup(&log);
-    release(&log.lock);
-  }
 }
 
 // Copy modified blocks from cache to log.
@@ -215,8 +194,28 @@ log_write(struct buf *b)
 {
   int i;
 
-  if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1)
-    panic("too big a transaction");
+  acquire(&log.lock);
+  while (1)
+  {
+    if (log.committing) {
+      sleep(&log, &log.lock);
+    }
+    else if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1) {
+      log.committing = 1;
+      release(&log.lock);
+
+      commit();
+      acquire(&log.lock);
+      log.committing = 0;
+      wakeup(&log);
+      release(&log.lock);
+    }
+    else {
+      break;
+    }
+  }
+  release(&log.lock);
+  
   if (log.outstanding < 1)
     panic("log_write outside of trans");
 
@@ -232,3 +231,23 @@ log_write(struct buf *b)
   release(&log.lock);
 }
 
+void sync()
+{
+  acquire(&log.lock);
+  while (log.committing)
+    sleep(&log, &log.lock);
+
+  log.committing = 1;
+  release(&log.lock);
+
+  commit();
+  acquire(&log.lock);
+  log.committing = 0;
+  wakeup(&log);
+  release(&log.lock);
+}
+
+int get_log_num(void)
+{
+  return log.lh.n;
+}
