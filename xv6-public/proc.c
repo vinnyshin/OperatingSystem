@@ -13,8 +13,6 @@ struct
   struct proc proc[NPROC];
 } ptable;
 
-struct spinlock growproclock;
-
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -52,7 +50,6 @@ void queueinit(void)
 void pinit(void)
 {
   initlock(&ptable.lock, "ptable");
-  initlock(&growproclock, "growproc");
 }
 
 // Must be called with interrupts disabled
@@ -203,31 +200,21 @@ void userinit(void)
 int growproc(int n)
 {
   uint sz;
-  struct proc *master;
+  struct proc *curproc = myproc();
 
-  if (myproc()->master == 0) {
-    master = myproc();
-  }
-  else {
-    master = myproc()->master;
-  }
-  
-  sz = master->sz;
-  // cprintf("before size: %d\n", sz);
+  sz = curproc->sz;
   if (n > 0)
   {
-    if ((sz = allocuvm(master->pgdir, sz, sz + n)) == 0)
+    if ((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
       return -1;
   }
   else if (n < 0)
   {
-    if ((sz = deallocuvm(master->pgdir, sz, sz + n)) == 0)
+    if ((sz = deallocuvm(curproc->pgdir, sz, sz + n)) == 0)
       return -1;
   }
-  // cprintf("after size: %d\n", sz);
-  // cprintf("curproc->tid: %d\n", myproc()->tid);
-  master->sz = sz;
-  switchuvm(master);
+  curproc->sz = sz;
+  switchuvm(curproc);
   return 0;
 }
 
@@ -319,12 +306,18 @@ int fork(void)
     if (p->pid == curproc->pid && p->state != UNUSED) {
       // 본인은 뺀다.
       if(p == curproc) {
+        // cprintf("curproc sz!: %d\n", curproc->sz);
         continue;
         }
+      // cprintf("p->tid: %d\n", p->tid);
+      // cprintf("master->sz: %d\n", curproc->master->sz);
+      // cprintf("p->sz: %d\n", p->sz);
       if (p->sz < curproc->sz)
       {
+        // cprintf("freed p->tid: %d\n", p->tid);
         np->freepage[np->freepagesize++] = p->sz - 2*PGSIZE;
         deallocuvm(np->pgdir, p->sz, p->sz - 2*PGSIZE);
+        // cprintf("np->pid %d", np->pid);
       }
     }      
   }
@@ -414,6 +407,8 @@ void exit(void)
       
       p->state = UNUSED;
       --p->master->nthreads;
+      // p->freepage[p->freepagesize++] = p->sz - 2*PGSIZE;
+      // deallocuvm(p->pgdir, p->sz, p->sz - 2*PGSIZE);
     }      
   }
   release(&ptable.lock);
@@ -812,6 +807,7 @@ void forkret(void)
     iinit(ROOTDEV);
     initlog(ROOTDEV);
   }
+
   // Return to "caller", actually trapret (see allocproc).
 }
 
@@ -853,7 +849,6 @@ void sleep(void *chan, struct spinlock *lk)
     release(&ptable.lock);
     acquire(lk);
   }
-  // cprintf("%x", p->tf->eip);
 }
 
 //PAGEBREAK!
@@ -894,14 +889,12 @@ int kill(int pid)
   acquire(&ptable.lock);
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
   {
-    if (p->pid == pid && p->tid == 0)
+    if (p->pid == pid)
     {
       p->killed = 1;
       // Wake process from sleep if necessary.
-      if (p->state == SLEEPING) {
+      if (p->state == SLEEPING)
         p->state = RUNNABLE;
-        enqueue(p->priorityqueue, p);
-      }
       release(&ptable.lock);
       return 0;
     }
@@ -920,8 +913,8 @@ void procdump(void)
       [UNUSED] "unused",
       [EMBRYO] "embryo",
       [SLEEPING] "sleep ",
-      [RUNNABLE] "runnable",
-      [RUNNING] "running",
+      [RUNNABLE] "runble",
+      [RUNNING] "run   ",
       [ZOMBIE] "zombie"};
   int i;
   struct proc *p;
@@ -936,7 +929,7 @@ void procdump(void)
       state = states[p->state];
     else
       state = "???";
-    cprintf("%d %d %s %s", p->pid, p->tid, state, p->name);
+    cprintf("%d %s %s", p->pid, state, p->name);
     if (p->state == SLEEPING)
     {
       getcallerpcs((uint *)p->context->ebp + 2, pc);

@@ -1758,7 +1758,7 @@ main(int argc, char *argv[])
 
   argptest();
   createdelete();
-  linkunlink();
+  // linkunlink();
   concreate();
   fourfiles();
   sharedfd();
@@ -1767,7 +1767,7 @@ main(int argc, char *argv[])
   bigwrite();
   bigargtest();
   bsstest();
-  sbrktest();
+  // sbrktest();
   validatetest();
 
   opentest();

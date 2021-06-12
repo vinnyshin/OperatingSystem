@@ -140,17 +140,7 @@ begin_op(void)
   }
 }
 
-// called at the end of each FS system call.
-// commits if this was the last outstanding operation.
-void
-end_op(void)
-{
-  acquire(&log.lock);
-  log.outstanding -= 1;
-  if (log.outstanding > 0)
-    wakeup(&log);
-  release(&log.lock);
-}
+
 
 // Copy modified blocks from cache to log.
 static void
@@ -165,6 +155,54 @@ write_log(void)
     bwrite(to);  // write the log
     brelse(from);
     brelse(to);
+  }
+}
+// called at the end of each FS system call.
+// commits if this was the last outstanding operation.
+
+void
+end_op(void)
+{
+  int do_commit = 0;
+  int do_log = 0;
+
+  acquire(&log.lock);
+  log.outstanding -= 1;
+  if(log.committing)
+    panic("log.committing");
+  if(log.outstanding == 0){
+    log.committing = 1;
+    if (log.lh.n + 1 * MAXOPBLOCKS > LOGSIZE)  
+      do_commit = 1;
+    else
+      do_log = 1;
+  } else {
+    // begin_op() may be waiting for log space,
+    // and decrementing log.outstanding has decreased
+    // the amount of reserved space.
+    wakeup(&log);
+  }
+  release(&log.lock);
+
+  if(do_commit){
+    // call commit w/o holding locks, since not allowed
+    // to sleep with locks.
+    commit();
+    acquire(&log.lock);
+    log.committing = 0;
+    wakeup(&log);
+    release(&log.lock);
+  }
+  if(do_log) {
+    // 파이프 예외처리
+    if (log.lh.n > 0) {
+      write_log();
+      write_head();
+    }
+    acquire(&log.lock);
+    log.committing = 0;
+    wakeup(&log);
+    release(&log.lock);
   }
 }
 
@@ -194,28 +232,8 @@ log_write(struct buf *b)
 {
   int i;
 
-  acquire(&log.lock);
-  while (1)
-  {
-    if (log.committing) {
-      sleep(&log, &log.lock);
-    }
-    else if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1) {
-      log.committing = 1;
-      release(&log.lock);
-
-      commit();
-      acquire(&log.lock);
-      log.committing = 0;
-      wakeup(&log);
-      release(&log.lock);
-    }
-    else {
-      break;
-    }
-  }
-  release(&log.lock);
-  
+  if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1)
+    panic("too big a transaction");
   if (log.outstanding < 1)
     panic("log_write outside of trans");
 

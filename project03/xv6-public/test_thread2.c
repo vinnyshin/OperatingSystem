@@ -3,7 +3,7 @@
 #include "user.h"
 
 #define NUM_THREAD 10
-#define NTEST 11
+#define NTEST 12
 
 // Show race condition
 int racingtest(void);
@@ -55,9 +55,11 @@ int (*testfunc[NTEST])(void) = {
   forktest,
   pipetest,
   sleeptest,
-  killtest,
+
   // exectest,
   // sbrktest,
+  // killtest,
+  
   // stridetest,
 };
 char *testname[NTEST] = {
@@ -71,9 +73,11 @@ char *testname[NTEST] = {
   "forktest",
   "pipetest",
   "sleeptest",
-  "killtest",
+
   // "exectest",
   // "sbrktest",
+  // "killtest",
+
   // "stridetest",
 };
 
@@ -448,27 +452,17 @@ sbrkthreadmain(void *arg)
   char *end;
   char *c;
   oldbrk = sbrk(1000);
-  // printf(1, "oldbrk: %d\n", oldbrk);
   end = oldbrk + 1000;
-  // printf(1, "endbrk: %d\n", end);
   for (c = oldbrk; c < end; c++){
     *c = tid+1;
   }
-  
-  
-  // printf(1, "exit\n");
-  // exit();
-  // sleep(1);
-  
-  // printf(1, "sleep\n");
-  
+  sleep(1);
   for (c = oldbrk; c < end; c++){
     if (*c != tid+1){
       printf(1, "panic at sbrkthreadmain\n");
       exit();
     }
   }
-  // printf(1, "exit\n");
   thread_exit(0);
 
   return 0;
@@ -482,21 +476,18 @@ sbrktest(void)
   void *retval;
 
   for (i = 0; i < NUM_THREAD; i++){
-    // printf(1, "create!: %d\n", i);
     if (thread_create(&threads[i], sbrkthreadmain, (void*)i) != 0){
       printf(1, "panic at thread_create\n");
       return -1;
     }
   }
-  for (i = 0; i < NUM_THREAD; i++) {
+  for (i = 0; i < NUM_THREAD; i++){
     if (thread_join(threads[i], &retval) != 0){
       printf(1, "panic at thread_join\n");
       return -1;
     }
   }
-  // printf(1, "finish\n");
-  // printf(1, "exit\n");
-  
+
   return 0;
 }
 
