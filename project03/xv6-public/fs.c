@@ -381,7 +381,7 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
   bn -= NDIRECT;
-
+  
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
@@ -395,7 +395,59 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+  bn -= NINDIRECT;
 
+  if(bn < NDOUBLYINDIRECT) {
+    if((addr = ip->addrs[NDIRECT + 1]) == 0)
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn / NINDIRECT]) == 0){
+      a[bn / NINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn % NINDIRECT]) == 0){
+      a[bn % NINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+
+    return addr;
+  }
+  bn -= NDOUBLYINDIRECT;
+
+  if(bn < NTRIPLEINDIRECT) {
+    if((addr = ip->addrs[NDIRECT + 1 + 1]) == 0)
+      ip->addrs[NDIRECT + 1 + 1] = addr = balloc(ip->dev);
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn / NDOUBLYINDIRECT]) == 0){
+      a[bn / NDOUBLYINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[(bn % NDOUBLYINDIRECT) / NINDIRECT]) == 0){
+      a[(bn % NDOUBLYINDIRECT) / NINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn % NINDIRECT]) == 0){
+      a[bn % NINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
   panic("bmap: out of range");
 }
 
@@ -407,9 +459,13 @@ bmap(struct inode *ip, uint bn)
 static void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+  int i, j, k;
+  struct buf *bp1;
+  struct buf *bp2;
+  struct buf *bp3;
+  uint *a1;
+  uint *a2;
+  uint *a3;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -417,22 +473,74 @@ itrunc(struct inode *ip)
       ip->addrs[i] = 0;
     }
   }
-
+  
   if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
-    a = (uint*)bp->data;
-    for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
-        bfree(ip->dev, a[j]);
+    bp1 = bread(ip->dev, ip->addrs[NDIRECT]);
+    a1 = (uint*)bp1->data;
+    for(i = 0; i < NINDIRECT; i++){
+      if(a1[i])
+        bfree(ip->dev, a1[i]);
     }
-    brelse(bp);
+    brelse(bp1);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
+  
+  if(ip->addrs[NDIRECT + 1]){
+    bp1 = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a1 = (uint*)bp1->data;
+    for(i = 0; i < NINDIRECT; i++){
+      if(a1[i]) {
+        bp2 = bread(ip->dev, a1[i]);
+        a2 = (uint*)bp2->data; 
+        for (j = 0; j < NINDIRECT; j++){
+          if(a2[j])
+            bfree(ip->dev, a2[j]);
+        }
+        brelse(bp2);
+        bfree(ip->dev, a1[i]);
+        a1[i] = 0;
+      }
+    }
+    brelse(bp1);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+    ip->addrs[NDIRECT + 1] = 0;
+  }
 
+  if(ip->addrs[NDIRECT + 1 + 1]){
+    bp1 = bread(ip->dev, ip->addrs[NDIRECT + 1 + 1]);
+    a1 = (uint*)bp1->data;
+    for(i = 0; i < NINDIRECT; i++){
+      if(a1[i]) {
+        bp2 = bread(ip->dev, a1[i]);
+        a2 = (uint*)bp2->data;
+        for(j = 0; j < NINDIRECT; j++){
+          if(a2[j]){
+            bp3 = bread(ip->dev, a2[j]);
+            a3 = (uint*)bp3->data;
+            for (k = 0; k < NINDIRECT; k++)
+            {
+              if(a3[k])
+                bfree(ip->dev, a3[k]);
+            }
+            brelse(bp3);
+            bfree(ip->dev, a2[j]);
+            a2[j] = 0;
+          }
+        }
+        brelse(bp2);
+        bfree(ip->dev, a1[i]);
+        a1[i] = 0;
+      }
+    }
+    brelse(bp1);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1 + 1]);
+    ip->addrs[NDIRECT + 1 + 1] = 0;
+  }
   ip->size = 0;
   iupdate(ip);
 }
+
 
 // Copy stat information from inode.
 // Caller must hold ip->lock.

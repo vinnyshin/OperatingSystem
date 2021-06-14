@@ -36,6 +36,8 @@ struct logheader {
   int block[LOGSIZE];
 };
 
+int n = 0;
+
 struct log {
   struct spinlock lock;
   int start;
@@ -140,14 +142,13 @@ begin_op(void)
   }
 }
 
-
-
 // Copy modified blocks from cache to log.
 static void
 write_log(void)
 {
   int tail;
 
+  // cprintf("loglhn %d\n", log.lh.n);
   for (tail = 0; tail < log.lh.n; tail++) {
     struct buf *to = bread(log.dev, log.start+tail+1); // log block
     struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
@@ -161,6 +162,38 @@ write_log(void)
 // commits if this was the last outstanding operation.
 
 void
+append_log(void)
+{
+  int tail;
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *hb = (struct logheader *) (buf->data);
+
+  for (tail = hb->n; tail < log.lh.n; tail++) {
+    struct buf *to = bread(log.dev, log.start+tail+1); // log block
+    struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
+    memmove(to->data, from->data, BSIZE);
+    bwrite(to);  // write the log
+    brelse(from);
+    brelse(to);
+  }
+  brelse(buf);
+}
+
+void
+append_head(void)
+{
+  struct buf *buf = bread(log.dev, log.start);
+  struct logheader *hb = (struct logheader *) (buf->data);
+  int i;
+  for (i = hb->n; i < log.lh.n; i++) {
+    hb->block[i] = log.lh.block[i];
+  }
+  hb->n = log.lh.n;
+  bwrite(buf);
+  brelse(buf);
+}
+
+void
 end_op(void)
 {
   int do_commit = 0;
@@ -172,7 +205,7 @@ end_op(void)
     panic("log.committing");
   if(log.outstanding == 0){
     log.committing = 1;
-    if (log.lh.n + 1 * MAXOPBLOCKS > LOGSIZE)  
+    if (log.lh.n + 1 * MAXOPBLOCKS > LOGSIZE)
       do_commit = 1;
     else
       do_log = 1;
@@ -190,14 +223,15 @@ end_op(void)
     commit();
     acquire(&log.lock);
     log.committing = 0;
+    n = 0;
     wakeup(&log);
     release(&log.lock);
   }
   if(do_log) {
-    // 파이프 예외처리
-    if (log.lh.n > 0) {
-      write_log();
-      write_head();
+    if (log.lh.n > n) {
+      append_log();
+      append_head();
+      n = log.lh.n;
     }
     acquire(&log.lock);
     log.committing = 0;
@@ -252,9 +286,17 @@ log_write(struct buf *b)
 void sync()
 {
   acquire(&log.lock);
-  while (log.committing)
+  if (log.committing) {
     sleep(&log, &log.lock);
+    release(&log.lock);
+    return;
+  }
 
+  while (log.outstanding > 0)
+  {
+    sleep(&log, &log.lock);
+  }
+  
   log.committing = 1;
   release(&log.lock);
 

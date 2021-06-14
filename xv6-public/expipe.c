@@ -35,7 +35,7 @@ main(int argc, char *argv[])
       write(fds[1], &str[i], SIZE_MSG);
       sleep(PERIOD);
     }
-    
+
     /* Close the writer's fd */
     close(fds[1]);
 
@@ -49,8 +49,7 @@ main(int argc, char *argv[])
 
     while (1) {
       memset(buf, 0, SIZE_BUF);
-      sync();
-      printf(1, "%d\n", get_log_num());
+
       /* Read message from the pipe if any */
       n = read(fds[0], buf, SIZE_MSG);
       if (n <= 0) break;

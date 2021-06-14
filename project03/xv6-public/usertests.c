@@ -1768,11 +1768,11 @@ main(int argc, char *argv[])
   bigargtest();
   bsstest();
   // sbrktest();
-  validatetest();
+  // validatetest();
 
   opentest();
   writetest();
-  writetest1();
+  // writetest1();
   createtest();
 
   openiputtest();

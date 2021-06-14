@@ -28,3 +28,5 @@
 #define SYS_thread_exit  27
 #define SYS_sync  28
 #define SYS_get_log_num 29
+#define SYS_pread  30
+#define SYS_pwrite 31
