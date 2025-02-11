@@ -3,7 +3,7 @@
 ## MLFQ and Stride scheduling
 
 Designed and implemented a new scheduler that combines Multilevel Feedback Queue (MLFQ) and Stride Scheduling to enhance the default Xv6 scheduler.
-Unfortunately, the design document and analysis document were lost due to a data failure on the school's GitLab server. They will be rewritten soon.
+Unfortunately, the design document and analysis document were lost due to a data failure on the school's GitLab server.
 
 ## Light-weight Process
 
